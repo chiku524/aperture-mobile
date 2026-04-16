@@ -3,7 +3,9 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import type { SyncRecord, SyncTableName } from './types';
 
 function isSyncTableName(t: string): t is SyncTableName {
-  return t === 'sessions' || t === 'session_events' || t === 'digests';
+  return (
+    t === 'sessions' || t === 'session_events' || t === 'digests' || t === 'session_metrics'
+  );
 }
 
 function assertNever(x: never): never {
@@ -60,6 +62,19 @@ export async function applySyncRecord(db: SQLiteDatabase, record: SyncRecord): P
         String(p.risks ?? ''),
         String(p.next_step ?? ''),
         Number(p.created_at ?? 0),
+      );
+      return;
+    case 'session_metrics':
+      await db.runAsync(
+        `INSERT OR REPLACE INTO session_metrics (session_id, app_foreground_ms, background_transitions, steps_delta, distance_estimate_m, steps_source, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        String(p.session_id ?? record.id),
+        Number(p.app_foreground_ms ?? 0),
+        Number(p.background_transitions ?? 0),
+        Number(p.steps_delta ?? 0),
+        Number(p.distance_estimate_m ?? 0),
+        String(p.steps_source ?? 'none'),
+        Number(p.updated_at ?? 0),
       );
       return;
     default:

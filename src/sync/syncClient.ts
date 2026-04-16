@@ -75,3 +75,12 @@ export function eventRowToRecord(row: Record<string, unknown>): SyncRecord {
     payload: row,
   };
 }
+
+export function sessionMetricsRowToRecord(row: Record<string, unknown>): SyncRecord {
+  return {
+    table: 'session_metrics',
+    id: String(row.session_id),
+    updated_at: Number(row.updated_at),
+    payload: row,
+  };
+}

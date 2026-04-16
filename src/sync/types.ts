@@ -1,4 +1,4 @@
-export type SyncTableName = 'sessions' | 'session_events' | 'digests';
+export type SyncTableName = 'sessions' | 'session_events' | 'digests' | 'session_metrics';
 
 export type SyncRecord = {
   table: SyncTableName;

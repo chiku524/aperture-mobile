@@ -32,6 +32,25 @@ export type DigestRow = {
   created_at: number;
 };
 
+export type SessionMetricsRow = {
+  session_id: string;
+  app_foreground_ms: number;
+  background_transitions: number;
+  steps_delta: number;
+  distance_estimate_m: number;
+  steps_source: string;
+  updated_at: number;
+};
+
+/** Session row joined with optional cognitive metrics for the ledger. */
+export type SessionLedgerRow = SessionRow & {
+  app_foreground_ms: number | null;
+  background_transitions: number | null;
+  steps_delta: number | null;
+  distance_estimate_m: number | null;
+  steps_source: string | null;
+};
+
 function newId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
 }
@@ -115,6 +134,65 @@ export async function listSessions(db: SQLiteDatabase, limit = 100): Promise<Ses
   );
 }
 
+export async function listSessionsForLedger(db: SQLiteDatabase, limit = 200): Promise<SessionLedgerRow[]> {
+  return db.getAllAsync<SessionLedgerRow>(
+    `SELECT s.id, s.intent, s.parking_note, s.duration_sec, s.strictness, s.started_at, s.ended_at, s.planned_end_at, s.status,
+            m.app_foreground_ms, m.background_transitions, m.steps_delta, m.distance_estimate_m, m.steps_source
+     FROM sessions s
+     LEFT JOIN session_metrics m ON m.session_id = s.id
+     ORDER BY s.started_at DESC
+     LIMIT ?`,
+    limit,
+  );
+}
+
+export async function upsertSessionMetrics(
+  db: SQLiteDatabase,
+  input: Omit<SessionMetricsRow, 'updated_at'>,
+): Promise<void> {
+  const updated_at = Date.now();
+  await db.runAsync(
+    `INSERT INTO session_metrics (session_id, app_foreground_ms, background_transitions, steps_delta, distance_estimate_m, steps_source, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(session_id) DO UPDATE SET
+       app_foreground_ms = excluded.app_foreground_ms,
+       background_transitions = excluded.background_transitions,
+       steps_delta = excluded.steps_delta,
+       distance_estimate_m = excluded.distance_estimate_m,
+       steps_source = excluded.steps_source,
+       updated_at = excluded.updated_at`,
+    input.session_id,
+    input.app_foreground_ms,
+    input.background_transitions,
+    input.steps_delta,
+    input.distance_estimate_m,
+    input.steps_source,
+    updated_at,
+  );
+}
+
+/** Best-effort draft: updates foreground counters only; preserves steps/distance on conflict. */
+export async function patchSessionMetricsDraft(
+  db: SQLiteDatabase,
+  sessionId: string,
+  foregroundMs: number,
+  backgroundTransitions: number,
+): Promise<void> {
+  const updated_at = Date.now();
+  await db.runAsync(
+    `INSERT INTO session_metrics (session_id, app_foreground_ms, background_transitions, steps_delta, distance_estimate_m, steps_source, updated_at)
+     VALUES (?, ?, ?, 0, 0, 'pending', ?)
+     ON CONFLICT(session_id) DO UPDATE SET
+       app_foreground_ms = excluded.app_foreground_ms,
+       background_transitions = excluded.background_transitions,
+       updated_at = excluded.updated_at`,
+    sessionId,
+    foregroundMs,
+    backgroundTransitions,
+    updated_at,
+  );
+}
+
 export async function insertDigest(
   db: SQLiteDatabase,
   sessionId: string,
@@ -160,6 +238,7 @@ export async function exportAllData(db: SQLiteDatabase): Promise<{
   sessions: SessionRow[];
   session_events: SessionEventRow[];
   digests: DigestRow[];
+  session_metrics: SessionMetricsRow[];
 }> {
   const sessions = await db.getAllAsync<SessionRow>(
     `SELECT id, intent, parking_note, duration_sec, strictness, started_at, ended_at, planned_end_at, status FROM sessions`,
@@ -170,11 +249,15 @@ export async function exportAllData(db: SQLiteDatabase): Promise<{
   const digests = await db.getAllAsync<DigestRow>(
     `SELECT id, session_id, summary, risks, next_step, created_at FROM digests`,
   );
+  const session_metrics = await db.getAllAsync<SessionMetricsRow>(
+    `SELECT session_id, app_foreground_ms, background_transitions, steps_delta, distance_estimate_m, steps_source, updated_at FROM session_metrics`,
+  );
   return {
     exported_at: new Date().toISOString(),
     sessions,
     session_events,
     digests,
+    session_metrics,
   };
 }
 

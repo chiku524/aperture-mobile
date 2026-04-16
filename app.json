@@ -16,6 +16,7 @@
       "supportsTablet": true
     },
     "android": {
+      "permissions": ["ACTIVITY_RECOGNITION"],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -27,7 +28,13 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-sensors",
+        {
+          "motionPermission": "Aperture reads approximate step counts during a focus session so you can correlate light movement with your blocks. Data stays on your device until you export or sync."
+        }
+      ]
     ]
   }
 }

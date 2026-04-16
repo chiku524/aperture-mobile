@@ -13,6 +13,22 @@ The app is developed under the **`vibe-code`** workspace on this machine:
 
 Do not create a duplicate project outside `vibe-code`; treat this path as the canonical checkout for implementation work.
 
+### Native rebuild reminder
+
+Whenever you change **native-facing** configuration or dependencies—`app.json` / `app.config` **plugins**, `ios` / `android` permissions, or packages that ship native code (e.g. **`expo-sensors`**, **`expo-sqlite`**, **`expo-network`**)—assume **Expo Go alone is not enough** to pick up everything. Install a **development build** (or a release build) so the native project is regenerated with the new Info.plist strings, Android manifests, and linked modules.
+
+**Typical workflow (managed workflow, local):**
+
+1. From the repo root: `npm install` (and `npx expo install` if the SDK suggests version bumps).
+2. Run a native target once so Metro + fresh binaries align:
+   - **iOS:** `npx expo run:ios`
+   - **Android:** `npx expo run:android`  
+   If you commit generated `ios/` / `android/` folders, use `npx expo prebuild --clean` when native config changed materially, then open the workspace in Xcode / Android Studio as needed.
+
+**EAS (CI or teammates):** create a new **development** profile build after those changes, e.g. `eas build --profile development --platform ios` (and/or `android`), then install the artifact on device.
+
+**Symptoms if you skip this:** motion / activity permission prompts missing, pedometer unavailable, or stale native code while JS updates fine.
+
 ---
 
 ## 1. Problem and stance
@@ -45,6 +61,19 @@ The app borrows **ergonomic** concepts (not clinical claims):
 - **Working memory budget:** one primary intent visible; optional tiny “parking lot” for intrusions.
 - **Task-switching tax:** session log records **pauses** and **reason tags** to surface patterns over time.
 - **Attention residue:** receipt step asks for a **small next physical action** to reduce open loops after the session.
+
+### 3.1 Cognitive instrumentation (in-app)
+
+The build records **operator-owned, session-scoped** signals — not a clinical assessment:
+
+| Signal | Meaning | Limits |
+|--------|---------|--------|
+| **In-app foreground time** | Milliseconds the **Aperture app** spent in the foreground from aperture through receipt (or abandon). | This is **not** iOS Screen Time or Android Digital Wellbeing totals. |
+| **Times left app** | Count of transitions from `active` → background/inactive while the session is tracked. | Coarse proxy for **task-switching** / fragmentation. |
+| **Steps** | iOS: `Pedometer.getStepCountAsync` over `[session.start, save time]`. Android: `watchStepCount` while the app runs (no historical range API on Android in Expo). | Web: unavailable. Background: Android live steps may pause per OS. |
+| **Distance (est.)** | `steps × 0.76 m` average stride — labeled as approximate. | Not GPS track distance. |
+
+Data lives in SQLite `session_metrics`, is included in **export** and **sync**, and can be toggled under **Settings → Cognitive metrics**.
 
 ---
 
@@ -131,7 +160,8 @@ aperture-mobile/
     db/                   # SQLite init + queries
     navigation/           # Root stack + main tabs + param types
     screens/              # Intent, Aperture, Receipt, Ledger, Settings
-    sync/                 # HTTP client, push bundle builder, pull merge helpers
+    metrics/              # Session foreground + pedometer runtime, persist, formatting
+    sync/                 # HTTP client, push bundle, pull merge, Wi‑Fi guard for sync
     theme.ts              # Shared colors / spacing
   docs/
     PLANNING.md           # This file
@@ -148,8 +178,12 @@ aperture-mobile/
 | Five screens + navigation (stack + tabs) | Done | `App.tsx`, `src/navigation/RootNavigator.tsx`, `src/screens/*` |
 | Intent → Aperture → Receipt flow | Done | Pause extends `planned_end_at` via `extendPlannedEnd` |
 | Ledger + JSON export via share sheet | Done | Uses `expo-file-system/legacy` for `cacheDirectory` / `writeAsStringAsync` (Expo SDK 54) |
-| Settings: URL, token, health, push, pull | Done | Pull applies records in a transaction |
+| Settings: URL, token, health, push, pull | Done | Pull applies records in a transaction; batched settings reads |
+| Wi‑Fi–only sync guard | Done | `expo-network` + `src/sync/wifiGuard.ts` (push/pull); setting `wifi_only_sync` |
+| Metrics draft flush | Done | ~30s `session_metrics` foreground draft via `patchSessionMetricsDraft` during active session |
+| Ledger list perf | Done | `React.memo` row, stable `keyExtractor` / `renderItem`, tuned `FlatList` window |
 | Reference sync server | Done | `sync-server/server.js` — run `cd sync-server && npm install && npm start` (default port **8787**) |
+| Cognitive metrics (foreground, breaks, steps, est. distance) | Done | `expo-sensors` Pedometer + `AppState`; table `session_metrics`; Settings toggles |
 
 **Non-goals** for this MVP remain as in §4.3 (no OS-wide blocking, no E2E payload encryption, no background sync).
 
@@ -159,6 +193,26 @@ aperture-mobile/
 
 | Date | Milestone |
 |------|-----------|
-| 2026-04-16 | Wired `App.tsx` to `initDatabase`, dark navigation theme, gesture handler entry. Implemented all five screens, `RootNavigator` (Main tabs + Aperture/Receipt stack), sync helpers (`buildPushRecords`, `applySyncRecord`), repo helpers (`getActiveSession`, `extendPlannedEnd`), and the reference `sync-server`. |
+| 2026-04-16 | Initial MVP (navigation, SQLite, sync server) plus cognitive metrics: `session_metrics`, in-app foreground + step/distance estimates (`src/metrics/*`), ledger summaries, export/sync for metrics, `expo-sensors` plugin + Android `ACTIVITY_RECOGNITION`. |
+| 2026-04-16 | Optimizations: periodic metrics draft flush (~30s), `expo-network` Wi‑Fi–only push/pull guard, Settings `Promise.all` load, memoized ledger rows + FlatList tuning. |
 
 When extending the app, update this table with a one-line note so planning stays aligned with the tree.
+
+---
+
+## 12. Enhancements & optimizations (suggested)
+
+**Recently implemented from this list:** periodic `session_metrics` draft flush (~30s), Wi‑Fi–only sync via `expo-network`, batched Settings reads, memoized ledger rows + FlatList window tuning.
+
+Further ideas, roughly ordered:
+
+1. **Health Connect (Android)** — Historical step ranges and better background parity than `watchStepCount` alone.
+2. **GPS / significant-motion** — Optional session track for true “distance moved”; trade battery and privacy explicitly in UI.
+3. **Charts** — Rolling distribution of “times left app” vs. digest quality or session length (local-only charts).
+4. **Focus intent correlation** — Tag sessions (reading / maker / admin) and compare metrics cohorts.
+5. **Notification permission nudges** — Optional “aperture ending” reminder without becoming interruptive.
+6. **Wi‑Fi guard refinement** — Treat `NetworkStateType.UNKNOWN` with a user-visible “strict / permissive” mode; optionally block VPN routes if policy demands.
+7. **SQLite PRAGMA tuning** — `synchronous` / `busy_timeout` for fewer rare write conflicts under load.
+8. **Export streaming** — Very large ledgers: stream JSON to disk instead of stringifying in memory.
+
+These are not committed work items unless pulled into a milestone; they inform the next design passes.

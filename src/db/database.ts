@@ -42,6 +42,16 @@ export function getDatabase(): Promise<SQLiteDatabase> {
           value TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_events_session ON session_events(session_id);
+        CREATE TABLE IF NOT EXISTS session_metrics (
+          session_id TEXT PRIMARY KEY NOT NULL,
+          app_foreground_ms INTEGER NOT NULL DEFAULT 0,
+          background_transitions INTEGER NOT NULL DEFAULT 0,
+          steps_delta INTEGER NOT NULL DEFAULT 0,
+          distance_estimate_m REAL NOT NULL DEFAULT 0,
+          steps_source TEXT NOT NULL DEFAULT 'none',
+          updated_at INTEGER NOT NULL,
+          FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        );
       `);
       return db;
     })();

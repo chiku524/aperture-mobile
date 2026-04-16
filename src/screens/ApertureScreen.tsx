@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,19 +15,60 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { SETTINGS_METRICS_APP_TIME, SETTINGS_METRICS_MOTION } from '../constants/settingsKeys';
 import { getDatabase } from '../db/database';
 import {
   abandonSession,
   extendPlannedEnd,
   getSession,
+  getSetting,
   insertEvent,
   type SessionRow,
 } from '../db/repo';
+import { formatDistanceApprox, formatForegroundInApp, formatSteps } from '../metrics/formatSessionMetrics';
+import { persistSessionMetrics } from '../metrics/persistSessionMetrics';
+import {
+  attachSessionMetrics,
+  ESTIMATED_STRIDE_M,
+  getLiveAndroidSteps,
+  getLiveForegroundMs,
+  getTrackedSessionId,
+} from '../metrics/sessionMetricsRuntime';
 import type { RootStackParamList } from '../navigation/types';
 import { colors, spacing } from '../theme';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Aperture'>;
 type R = RouteProp<RootStackParamList, 'Aperture'>;
+
+function MetricsLive(props: {
+  sessionId: string;
+  tick: number;
+  foregroundEnabled: boolean;
+  motionEnabled: boolean;
+}) {
+  void props.tick;
+  if (getTrackedSessionId() !== props.sessionId) {
+    return null;
+  }
+  const fgMs = props.foregroundEnabled ? getLiveForegroundMs() : 0;
+  const steps = getLiveAndroidSteps();
+  return (
+    <View style={styles.metricsBox}>
+      <Text style={styles.metricsLine}>
+        {props.foregroundEnabled ? formatForegroundInApp(fgMs) : 'In-app time capture off (Settings).'}
+      </Text>
+      <Text style={styles.metricsLineMuted}>
+        {!props.motionEnabled
+          ? 'Step / distance capture off (Settings).'
+          : Platform.OS === 'android'
+            ? `${formatSteps(steps)} · ${formatDistanceApprox(steps * ESTIMATED_STRIDE_M)}`
+            : Platform.OS === 'ios'
+              ? 'Steps are queried once when you finish the receipt (HealthKit / Motion).'
+              : 'Step estimates are not available on web.'}
+      </Text>
+    </View>
+  );
+}
 
 function formatRemain(ms: number): string {
   const s = Math.max(0, Math.ceil(ms / 1000));
@@ -47,6 +89,9 @@ export function ApertureScreen() {
   const [pauseStartedAt, setPauseStartedAt] = useState<number | null>(null);
   const [pauseModal, setPauseModal] = useState(false);
   const [pauseReason, setPauseReason] = useState('');
+  const [metricPreview, setMetricPreview] = useState(0);
+  const [metricFgEnabled, setMetricFgEnabled] = useState(true);
+  const [metricMotionEnabled, setMetricMotionEnabled] = useState(true);
 
   const reload = useCallback(async () => {
     const db = await getDatabase();
@@ -57,6 +102,28 @@ export function ApertureScreen() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const db = await getDatabase();
+      const motion = (await getSetting(db, SETTINGS_METRICS_MOTION)) !== '0';
+      const fg = (await getSetting(db, SETTINGS_METRICS_APP_TIME)) !== '0';
+      if (!cancelled) {
+        setMetricFgEnabled(fg);
+        setMetricMotionEnabled(motion);
+        attachSessionMetrics(sessionId, { recordForeground: fg, recordMotion: motion });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
+
+  useEffect(() => {
+    const id = setInterval(() => setMetricPreview((n) => n + 1), 2000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     if (!session || session.status !== 'active') return;
@@ -117,6 +184,10 @@ export function ApertureScreen() {
           style: 'destructive',
           onPress: async () => {
             const db = await getDatabase();
+            const row = session ?? (await getSession(db, sessionId));
+            if (row) {
+              await persistSessionMetrics(db, row);
+            }
             await abandonSession(db, sessionId, Date.now());
             navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
           },
@@ -161,6 +232,18 @@ export function ApertureScreen() {
             <Text style={styles.parking}>{session.parking_note}</Text>
           </>
         ) : null}
+
+        <Text style={styles.section}>Cognitive context (live)</Text>
+        <Text style={styles.metricsHint}>
+          In-app time is how long Aperture stays foreground — not full-device screen time. Distance is a rough
+          estimate from steps.
+        </Text>
+        <MetricsLive
+          sessionId={sessionId}
+          tick={metricPreview}
+          foregroundEnabled={metricFgEnabled}
+          motionEnabled={metricMotionEnabled}
+        />
       </ScrollView>
 
       <View style={styles.actions}>
@@ -263,4 +346,15 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
   },
   modalRow: { flexDirection: 'row', gap: spacing.md },
+  metricsHint: { color: colors.muted, fontSize: 12, lineHeight: 17, marginBottom: spacing.sm },
+  metricsBox: {
+    marginTop: spacing.md,
+    padding: spacing.md,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  metricsLine: { color: colors.text, fontSize: 15, fontWeight: '600' },
+  metricsLineMuted: { color: colors.muted, fontSize: 13, marginTop: spacing.xs, lineHeight: 18 },
 });

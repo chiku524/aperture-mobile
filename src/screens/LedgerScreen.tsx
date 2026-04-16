@@ -1,11 +1,12 @@
 import { cacheDirectory, EncodingType, writeAsStringAsync } from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
-import { useCallback, useState } from 'react';
+import { memo, useCallback, useState } from 'react';
 import { Alert, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 
 import { getDatabase } from '../db/database';
-import { exportAllData, listSessions, type SessionRow } from '../db/repo';
+import { exportAllData, listSessionsForLedger, type SessionLedgerRow } from '../db/repo';
+import { formatBackgroundBreaks, formatDistanceApprox, formatForegroundInApp, formatSteps } from '../metrics/formatSessionMetrics';
 import { colors, spacing } from '../theme';
 
 function formatWhen(ts: number): string {
@@ -16,13 +17,45 @@ function formatWhen(ts: number): string {
   }
 }
 
+function metricsSubtitle(row: SessionLedgerRow): string | null {
+  if (row.app_foreground_ms == null && row.steps_delta == null) {
+    return null;
+  }
+  const fgMs = row.app_foreground_ms ?? 0;
+  const steps = row.steps_delta ?? 0;
+  const dist = row.distance_estimate_m ?? 0;
+  const breaks = row.background_transitions ?? 0;
+  if (fgMs === 0 && steps === 0 && breaks === 0) {
+    return null;
+  }
+  const parts = [formatForegroundInApp(fgMs), formatBackgroundBreaks(breaks)];
+  if (steps > 0) {
+    parts.push(formatSteps(steps));
+    parts.push(formatDistanceApprox(dist));
+  }
+  return parts.join(' · ');
+}
+
+const LedgerSessionRow = memo(function LedgerSessionRow({ item }: { item: SessionLedgerRow }) {
+  const sub = metricsSubtitle(item);
+  return (
+    <View style={styles.card}>
+      <Text style={styles.intent}>{item.intent}</Text>
+      <Text style={styles.meta}>
+        {formatWhen(item.started_at)} · {item.status} · {Math.round(item.duration_sec / 60)}m planned
+      </Text>
+      {sub ? <Text style={styles.metrics}>{sub}</Text> : null}
+    </View>
+  );
+});
+
 export function LedgerScreen() {
-  const [rows, setRows] = useState<SessionRow[]>([]);
+  const [rows, setRows] = useState<SessionLedgerRow[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     const db = await getDatabase();
-    const list = await listSessions(db, 200);
+    const list = await listSessionsForLedger(db, 200);
     setRows(list);
   }, []);
 
@@ -59,6 +92,10 @@ export function LedgerScreen() {
     }
   };
 
+  const keyExtractor = useCallback((item: SessionLedgerRow) => item.id, []);
+
+  const renderItem = useCallback(({ item }: { item: SessionLedgerRow }) => <LedgerSessionRow item={item} />, []);
+
   return (
     <View style={styles.root}>
       <View style={styles.toolbar}>
@@ -68,20 +105,15 @@ export function LedgerScreen() {
       </View>
       <FlatList
         data={rows}
-        keyExtractor={(item) => item.id}
+        keyExtractor={keyExtractor}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />}
         contentContainerStyle={rows.length === 0 ? styles.emptyContainer : styles.list}
         ListEmptyComponent={
           <Text style={styles.empty}>No sessions yet. Start an intent to create your first aperture.</Text>
         }
-        renderItem={({ item }) => (
-          <View style={styles.card}>
-            <Text style={styles.intent}>{item.intent}</Text>
-            <Text style={styles.meta}>
-              {formatWhen(item.started_at)} · {item.status} · {Math.round(item.duration_sec / 60)}m planned
-            </Text>
-          </View>
-        )}
+        renderItem={renderItem}
+        initialNumToRender={12}
+        windowSize={7}
       />
     </View>
   );
@@ -116,4 +148,5 @@ const styles = StyleSheet.create({
   },
   intent: { color: colors.text, fontSize: 16, fontWeight: '600', marginBottom: spacing.xs },
   meta: { color: colors.muted, fontSize: 13 },
+  metrics: { color: colors.accent, fontSize: 12, marginTop: spacing.xs, lineHeight: 17 },
 });
