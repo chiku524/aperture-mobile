@@ -1,9 +1,32 @@
 import type { HealthResponseBody, PullResponseBody, PushRequestBody, PushResponseBody, SyncRecord } from './types';
 
-function joinUrl(base: string, path: string): string {
+const HEALTH_TIMEOUT_MS = 15_000;
+const PUSH_TIMEOUT_MS = 60_000;
+const PULL_TIMEOUT_MS = 60_000;
+
+export function joinUrl(base: string, path: string): string {
   const b = base.replace(/\/+$/, '');
   const p = path.replace(/^\/+/, '');
   return `${b}/${p}`;
+}
+
+async function fetchWithTimeout(
+  input: string,
+  init: RequestInit | undefined,
+  timeoutMs: number,
+): Promise<Response> {
+  const ctrl = new AbortController();
+  const id = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: ctrl.signal });
+  } catch (e) {
+    if (e instanceof Error && e.name === 'AbortError') {
+      throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(id);
+  }
 }
 
 export class SyncClient {
@@ -13,7 +36,7 @@ export class SyncClient {
   ) {}
 
   async health(): Promise<HealthResponseBody> {
-    const res = await fetch(joinUrl(this.baseUrl, '/health'));
+    const res = await fetchWithTimeout(joinUrl(this.baseUrl, '/health'), undefined, HEALTH_TIMEOUT_MS);
     if (!res.ok) {
       throw new Error(`Health check failed: ${res.status}`);
     }
@@ -21,14 +44,18 @@ export class SyncClient {
   }
 
   async push(body: PushRequestBody): Promise<PushResponseBody> {
-    const res = await fetch(joinUrl(this.baseUrl, '/v1/sync/push'), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${this.token}`,
+    const res = await fetchWithTimeout(
+      joinUrl(this.baseUrl, '/v1/sync/push'),
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.token}`,
+        },
+        body: JSON.stringify(body),
       },
-      body: JSON.stringify(body),
-    });
+      PUSH_TIMEOUT_MS,
+    );
     if (!res.ok) {
       const t = await res.text();
       throw new Error(`Push failed (${res.status}): ${t}`);
@@ -38,9 +65,11 @@ export class SyncClient {
 
   async pull(cursor: string | null): Promise<PullResponseBody> {
     const q = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
-    const res = await fetch(joinUrl(this.baseUrl, `/v1/sync/pull${q}`), {
-      headers: { Authorization: `Bearer ${this.token}` },
-    });
+    const res = await fetchWithTimeout(
+      joinUrl(this.baseUrl, `/v1/sync/pull${q}`),
+      { headers: { Authorization: `Bearer ${this.token}` } },
+      PULL_TIMEOUT_MS,
+    );
     if (!res.ok) {
       const t = await res.text();
       throw new Error(`Pull failed (${res.status}): ${t}`);

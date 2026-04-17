@@ -25,4 +25,12 @@ export type PullResponseBody = {
 export type HealthResponseBody = {
   ok: boolean;
   version: string;
+  /** Present when the sync server exposes billing / platform AI (see sync-server). */
+  billing?: {
+    platformGuidance: boolean;
+    iap?: {
+      apple: boolean;
+      google: boolean;
+    };
+  };
 };

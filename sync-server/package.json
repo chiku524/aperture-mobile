@@ -2,12 +2,15 @@
   "name": "aperture-sync-server",
   "version": "1.0.0",
   "private": true,
-  "description": "Reference self-hosted sync API for Aperture Mobile",
+  "description": "Self-hosted sync + platform AI + IAP credit verification for Aperture Mobile",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "express": "^4.21.2"
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "googleapis": "^144.0.0",
+    "jose": "^4.15.9"
   }
 }

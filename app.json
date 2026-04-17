@@ -2,6 +2,7 @@
   "expo": {
     "name": "aperture-mobile",
     "slug": "aperture-mobile",
+    "scheme": "aperture-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -13,10 +14,14 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.aperture.mobile"
     },
     "android": {
-      "permissions": ["ACTIVITY_RECOGNITION"],
+      "package": "com.aperture.mobile",
+      "permissions": [
+        "ACTIVITY_RECOGNITION"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -25,7 +30,14 @@
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "bundler": "metro",
+      "favicon": "./assets/favicon.png",
+      "name": "Aperture",
+      "shortName": "Aperture",
+      "lang": "en",
+      "description": "Bounded deep work with a clear intent, optional AI guidance, and a receipt. Data stays on your device until you sync.",
+      "themeColor": "#0b0f14",
+      "backgroundColor": "#0b0f14"
     },
     "plugins": [
       "expo-sqlite",
@@ -34,7 +46,8 @@
         {
           "motionPermission": "Aperture reads approximate step counts during a focus session so you can correlate light movement with your blocks. Data stays on your device until you export or sync."
         }
-      ]
+      ],
+      "expo-iap"
     ]
   }
 }

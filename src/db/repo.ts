@@ -134,16 +134,71 @@ export async function listSessions(db: SQLiteDatabase, limit = 100): Promise<Ses
   );
 }
 
-export async function listSessionsForLedger(db: SQLiteDatabase, limit = 200): Promise<SessionLedgerRow[]> {
+export async function listSessionsForLedger(
+  db: SQLiteDatabase,
+  limit = 200,
+  offset = 0,
+): Promise<SessionLedgerRow[]> {
   return db.getAllAsync<SessionLedgerRow>(
     `SELECT s.id, s.intent, s.parking_note, s.duration_sec, s.strictness, s.started_at, s.ended_at, s.planned_end_at, s.status,
             m.app_foreground_ms, m.background_transitions, m.steps_delta, m.distance_estimate_m, m.steps_source
      FROM sessions s
      LEFT JOIN session_metrics m ON m.session_id = s.id
      ORDER BY s.started_at DESC
-     LIMIT ?`,
+     LIMIT ? OFFSET ?`,
     limit,
+    offset,
   );
+}
+
+/** Case-insensitive substring match on intent and parking lot (SQLite `instr`). Empty needle delegates to `listSessionsForLedger`. */
+export async function searchSessionsForLedger(
+  db: SQLiteDatabase,
+  needle: string,
+  limit = 40,
+  offset = 0,
+): Promise<SessionLedgerRow[]> {
+  const n = needle.trim().toLowerCase();
+  if (!n) {
+    return listSessionsForLedger(db, limit, offset);
+  }
+  return db.getAllAsync<SessionLedgerRow>(
+    `SELECT s.id, s.intent, s.parking_note, s.duration_sec, s.strictness, s.started_at, s.ended_at, s.planned_end_at, s.status,
+            m.app_foreground_ms, m.background_transitions, m.steps_delta, m.distance_estimate_m, m.steps_source
+     FROM sessions s
+     LEFT JOIN session_metrics m ON m.session_id = s.id
+     WHERE instr(lower(coalesce(s.intent, '')), ?) > 0
+        OR instr(lower(coalesce(s.parking_note, '')), ?) > 0
+     ORDER BY s.started_at DESC
+     LIMIT ? OFFSET ?`,
+    n,
+    n,
+    limit,
+    offset,
+  );
+}
+
+export async function getSessionLedgerRow(db: SQLiteDatabase, id: string): Promise<SessionLedgerRow | null> {
+  const row = await db.getFirstAsync<SessionLedgerRow>(
+    `SELECT s.id, s.intent, s.parking_note, s.duration_sec, s.strictness, s.started_at, s.ended_at, s.planned_end_at, s.status,
+            m.app_foreground_ms, m.background_transitions, m.steps_delta, m.distance_estimate_m, m.steps_source
+     FROM sessions s
+     LEFT JOIN session_metrics m ON m.session_id = s.id
+     WHERE s.id = ?`,
+    id,
+  );
+  return row ?? null;
+}
+
+export async function getLatestDigestForSession(
+  db: SQLiteDatabase,
+  sessionId: string,
+): Promise<DigestRow | null> {
+  const row = await db.getFirstAsync<DigestRow>(
+    `SELECT id, session_id, summary, risks, next_step, created_at FROM digests WHERE session_id = ? ORDER BY created_at DESC LIMIT 1`,
+    sessionId,
+  );
+  return row ?? null;
 }
 
 export async function upsertSessionMetrics(
@@ -218,6 +273,31 @@ export async function insertDigest(
     next_step: body.next_step,
     created_at,
   };
+}
+
+/** Updates the latest digest row for this session if one exists; otherwise inserts. Used by Receipt save / resume. */
+export async function upsertLatestDigestForSession(
+  db: SQLiteDatabase,
+  sessionId: string,
+  body: { summary: string; risks: string; next_step: string },
+): Promise<DigestRow> {
+  const existing = await getLatestDigestForSession(db, sessionId);
+  if (existing) {
+    await db.runAsync(
+      `UPDATE digests SET summary = ?, risks = ?, next_step = ? WHERE id = ?`,
+      body.summary,
+      body.risks,
+      body.next_step,
+      existing.id,
+    );
+    return {
+      ...existing,
+      summary: body.summary,
+      risks: body.risks,
+      next_step: body.next_step,
+    };
+  }
+  return insertDigest(db, sessionId, body);
 }
 
 export async function getSetting(db: SQLiteDatabase, key: string): Promise<string | null> {

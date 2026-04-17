@@ -1,11 +1,12 @@
+import { Ionicons } from '@expo/vector-icons';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { Text } from 'react-native';
 
 import { ApertureScreen } from '../screens/ApertureScreen';
 import { IntentScreen } from '../screens/IntentScreen';
 import { LedgerScreen } from '../screens/LedgerScreen';
 import { ReceiptScreen } from '../screens/ReceiptScreen';
+import { SessionDetailScreen } from '../screens/SessionDetailScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { colors } from '../theme';
 
@@ -18,6 +19,7 @@ function MainTabs() {
   return (
     <Tab.Navigator
       screenOptions={{
+        sceneStyle: { backgroundColor: 'transparent' },
         headerStyle: { backgroundColor: colors.surface },
         headerTintColor: colors.text,
         headerTitleStyle: { fontWeight: '600' },
@@ -31,7 +33,7 @@ function MainTabs() {
         component={IntentScreen}
         options={{
           title: 'Intent',
-          tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 16 }}>◎</Text>,
+          tabBarIcon: ({ color, size }) => <Ionicons name="flag-outline" color={color} size={size ?? 22} />,
         }}
       />
       <Tab.Screen
@@ -39,7 +41,7 @@ function MainTabs() {
         component={LedgerScreen}
         options={{
           title: 'Ledger',
-          tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 16 }}>≡</Text>,
+          tabBarIcon: ({ color, size }) => <Ionicons name="list" color={color} size={size ?? 22} />,
         }}
       />
       <Tab.Screen
@@ -47,7 +49,7 @@ function MainTabs() {
         component={SettingsScreen}
         options={{
           title: 'Settings',
-          tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 16 }}>⚙</Text>,
+          tabBarIcon: ({ color, size }) => <Ionicons name="settings-outline" color={color} size={size ?? 22} />,
         }}
       />
     </Tab.Navigator>
@@ -61,7 +63,7 @@ export function RootNavigator() {
         headerStyle: { backgroundColor: colors.surface },
         headerTintColor: colors.text,
         headerTitleStyle: { fontWeight: '600' },
-        contentStyle: { backgroundColor: colors.bg },
+        contentStyle: { backgroundColor: 'transparent' },
       }}
     >
       <Stack.Screen name="Main" component={MainTabs} options={{ headerShown: false }} />
@@ -71,6 +73,7 @@ export function RootNavigator() {
         options={{ title: 'Aperture', presentation: 'fullScreenModal', gestureEnabled: false }}
       />
       <Stack.Screen name="Receipt" component={ReceiptScreen} options={{ title: 'Receipt', gestureEnabled: false }} />
+      <Stack.Screen name="SessionDetail" component={SessionDetailScreen} options={{ title: 'Session' }} />
     </Stack.Navigator>
   );
 }

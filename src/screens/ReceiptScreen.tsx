@@ -7,7 +7,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { SETTINGS_METRICS_APP_TIME, SETTINGS_METRICS_MOTION } from '../constants/settingsKeys';
 import { getDatabase } from '../db/database';
-import { abandonSession, completeSession, getSession, getSetting, insertDigest } from '../db/repo';
+import {
+  abandonSession,
+  completeSession,
+  getLatestDigestForSession,
+  getSession,
+  getSetting,
+  upsertLatestDigestForSession,
+} from '../db/repo';
 import { formatDistanceApprox, formatForegroundInApp, formatSteps } from '../metrics/formatSessionMetrics';
 import { persistSessionMetrics } from '../metrics/persistSessionMetrics';
 import {
@@ -19,6 +26,7 @@ import {
 } from '../metrics/sessionMetricsRuntime';
 import type { RootStackParamList } from '../navigation/types';
 import { colors, spacing } from '../theme';
+import { notifySuccess } from '../utils/haptics';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Receipt'>;
 type R = RouteProp<RootStackParamList, 'Receipt'>;
@@ -41,9 +49,17 @@ export function ReceiptScreen() {
     void (async () => {
       const db = await getDatabase();
       const s = await getSession(db, sessionId);
-      if (s) {
-        setIntent(s.intent);
+      if (!s) return;
+      setIntent(s.intent);
+      const d = await getLatestDigestForSession(db, sessionId);
+      if (d) {
+        setSummary(d.summary);
+        setRisks(d.risks);
+        setNextStep(d.next_step);
+      } else {
         setSummary(s.intent);
+        setRisks('');
+        setNextStep('');
       }
     })();
   }, [sessionId]);
@@ -76,7 +92,7 @@ export function ReceiptScreen() {
 
   const onSave = async () => {
     const db = await getDatabase();
-    await insertDigest(db, sessionId, {
+    await upsertLatestDigestForSession(db, sessionId, {
       summary: summary.trim() || intent,
       risks: risks.trim(),
       next_step: nextStep.trim(),
@@ -86,6 +102,7 @@ export function ReceiptScreen() {
       await persistSessionMetrics(db, latest);
     }
     await completeSession(db, sessionId, Date.now());
+    notifySuccess();
     Alert.alert('Saved', 'Session closed and receipt stored.', [{ text: 'OK', onPress: goHome }]);
   };
 
@@ -201,7 +218,7 @@ function ReceiptMetricsLive(props: {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.bg },
+  root: { flex: 1, backgroundColor: 'transparent' },
   scroll: { padding: spacing.lg, paddingBottom: 120 },
   label: { color: colors.text, fontSize: 15, fontWeight: '600' },
   metricsHint: { color: colors.muted, fontSize: 12, lineHeight: 17, marginBottom: spacing.sm },

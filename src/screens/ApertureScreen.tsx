@@ -36,6 +36,7 @@ import {
 } from '../metrics/sessionMetricsRuntime';
 import type { RootStackParamList } from '../navigation/types';
 import { colors, spacing } from '../theme';
+import { impactLight } from '../utils/haptics';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Aperture'>;
 type R = RouteProp<RootStackParamList, 'Aperture'>;
@@ -170,6 +171,7 @@ export function ApertureScreen() {
   };
 
   const onEnd = () => {
+    impactLight();
     navigation.navigate('Receipt', { sessionId });
   };
 
@@ -292,9 +294,15 @@ export function ApertureScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.bg },
+  root: { flex: 1, backgroundColor: 'transparent' },
   scroll: { padding: spacing.lg },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.lg, backgroundColor: colors.bg },
+  center: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.lg,
+    backgroundColor: 'transparent',
+  },
   muted: { color: colors.muted },
   body: { color: colors.text, textAlign: 'center', marginBottom: spacing.md },
   timer: { fontSize: 56, fontWeight: '200', color: colors.text, textAlign: 'center', marginTop: spacing.md },

@@ -10,6 +10,7 @@ export type RootStackParamList = {
   Main: NavigatorScreenParams<MainTabParamList> | undefined;
   Aperture: { sessionId: string };
   Receipt: { sessionId: string };
+  SessionDetail: { sessionId: string };
 };
 
 declare global {
